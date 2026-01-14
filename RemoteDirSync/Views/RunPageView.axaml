@@ -1,0 +1,68 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+			 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+			 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+			 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+			 xmlns:models="clr-namespace:RemoteDirSync.Models"
+			 xmlns:vm="using:RemoteDirSync.ViewModels"
+			 mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+			 x:DataType="vm:RunPageViewModel"
+			 x:Class="RemoteDirSync.Views.RunPageView">
+	<Design.DataContext>
+		<vm:DesignRunPageViewModel/>
+	</Design.DataContext>
+
+	<UserControl.Resources>
+		<DataTemplate x:Key="ConnectionTemplate"
+					  DataType="models:RemoteState">
+			<StackPanel>
+				<StackPanel Orientation="Horizontal" Spacing="4" Background="{StaticResource SemiGrey2}">
+					<TextBlock Text="{Binding Name}" Classes="H2" />
+					<TextBlock Text=":" />
+					<TextBlock Text="{Binding Address}" />
+				</StackPanel>
+
+				<TreeView ItemsSource="{Binding FileSystemItems}">
+					<TreeView.ItemTemplate>
+						<TreeDataTemplate ItemsSource="{Binding Children}" >
+							<TextBlock Text="{Binding Name}" />
+						</TreeDataTemplate>
+
+					</TreeView.ItemTemplate>
+				</TreeView>
+
+			</StackPanel>
+		</DataTemplate>
+	</UserControl.Resources>
+
+	<Grid ColumnDefinitions="*,Auto,*" RowDefinitions="Auto,*">
+		<Panel Background="{DynamicResource SemiGrey1}" Grid.Column="0" Grid.Row="0" Grid.ColumnSpan="3">
+			<Grid ColumnDefinitions="Auto,*,Auto" Margin="5"
+				  >
+				<Button Theme="{DynamicResource SolidButton}" Command="{Binding BackCommand}" Grid.Column="0">
+					<StackPanel Orientation="Horizontal" Spacing="4">
+						<TextBlock Text="←" />
+						<TextBlock Text="Back"  />
+					</StackPanel>
+				</Button>
+				<TextBlock Text="{Binding SessionName}" VerticalAlignment="Center" Grid.Column="1" HorizontalAlignment="Center" />
+				<Button Theme="{DynamicResource SolidButton}" Command="{Binding BackCommand}" Grid.Column="2">
+					<StackPanel Orientation="Horizontal" Spacing="4">
+						<TextBlock Text="Run"  />
+					</StackPanel>
+				</Button>
+			</Grid>
+		</Panel>
+		<!-- Left panel -->
+		<ContentControl Grid.Column="0" Grid.Row="1" Content="{Binding RemoteStates[0]}" ContentTemplate="{StaticResource ConnectionTemplate}"  />
+
+		<!-- Splitter -->
+		<GridSplitter Grid.Column="1" Grid.Row="1"
+					  Width="5"
+					  Background="Gray"
+					  ResizeDirection="Columns"
+					  ShowsPreview="True" />
+
+		<!-- Right panel -->
+		<ContentControl Grid.Column="2" Grid.Row="1" Content="{Binding RemoteStates[1]}" ContentTemplate="{StaticResource ConnectionTemplate}" />
+	</Grid>
+</UserControl>

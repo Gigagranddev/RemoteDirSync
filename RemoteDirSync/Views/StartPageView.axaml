@@ -1,0 +1,116 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:converters="clr-namespace:RemoteDirSync.Converters"
+             xmlns:vm="using:RemoteDirSync.ViewModels"
+             xmlns:models="using:RemoteDirSync.Models"
+             x:Class="RemoteDirSync.Views.StartPageView"
+             x:DataType="vm:StartPageViewModel"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450">
+	<UserControl.Resources>
+		<converters:StringNullOrWhitespaceToBoolConverter x:Key="StringNullOrWhitespaceToBoolConverter" />
+		<converters:InvertBoolConverter x:Key="InvertBoolConverter" />
+	</UserControl.Resources>
+
+	<Grid RowDefinitions="*"
+		  ColumnDefinitions="2*,5*"
+		  Background="{DynamicResource SemiGrey0}"
+		  ColumnSpacing="20">
+
+		<!-- LEFT: saved sessions list -->
+
+
+		<Grid
+			  RowDefinitions="Auto,*,Auto"
+			  Margin="15"
+			  >
+			<TextBlock Grid.Row="0"
+					   Text="Saved Sessions" Classes="H3" Theme="{DynamicResource TitleTextBlock}"/>
+			<Panel Background="White" Grid.Row="1" Margin="15">
+			<ListBox
+				
+				Background="{DynamicResource SemiGrey0}"
+				
+					 x:Name="SessionsList"
+					 ItemsSource="{Binding SavedSessions}"
+					 SelectedItem="{Binding CurrentSession, Mode=TwoWay}">
+				<ListBox.ItemTemplate>
+					<DataTemplate x:DataType="models:Session">
+						<Border Padding="6">
+							<StackPanel>
+								<TextBlock x:Name="NewLabel"
+										   Text="New Session"
+										   IsVisible="{Binding IsNew}" />
+								<TextBlock x:Name="NameLabel"
+										   Text="{Binding Name}"
+										   IsVisible="{Binding IsNew, Converter={StaticResource InvertBoolConverter}}" />
+							</StackPanel>
+						</Border>
+					</DataTemplate>
+				</ListBox.ItemTemplate>
+			</ListBox>
+				</Panel>
+			<Button Grid.Row="2"
+					HorizontalAlignment="Left"
+					Theme="{DynamicResource SolidButton}"
+					Content="Delete"
+					Command="{Binding DeleteSessionCommand}" />
+		</Grid>
+
+
+		<!-- RIGHT: new session form -->
+		<Grid Grid.Row="0"
+			  Grid.Column="1"
+			  Margin="15"
+			  RowDefinitions="*,Auto">
+			<Grid Grid.Row="0" RowDefinitions="Auto,*">
+				<StackPanel Grid.Row="0" Spacing="6">
+					<TextBlock Text="New Session" Classes="H3" Theme="{DynamicResource TitleTextBlock}" />
+
+					<TextBox Watermark="Session name"
+							 Text="{Binding CurrentSession.Name}" />
+					<TextBlock Text="{Binding CurrentSession.NameErrorMessage}"
+							   Foreground="Red"
+							   IsVisible="{Binding CurrentSession.NameErrorMessage, Converter={StaticResource StringNullOrWhitespaceToBoolConverter}}" />
+
+					<TextBlock Text="Connections"  Classes="H4" Theme="{DynamicResource TitleTextBlock}" />
+					<Border Height="1" Background="Gray" />
+				</StackPanel>
+
+				<ItemsControl Grid.Row="1"
+							  ItemsSource="{Binding CurrentSession.Connections}">
+					<ItemsControl.ItemsPanel>
+						<ItemsPanelTemplate>
+							<StackPanel Orientation="Vertical" />
+						</ItemsPanelTemplate>
+					</ItemsControl.ItemsPanel>
+
+					<ItemsControl.ItemTemplate>
+						<DataTemplate>
+							<StackPanel Margin="0,10,0,0" Spacing="6">
+								<TextBlock Text="{Binding Name}" />
+								<TextBox Watermark="Address" Text="{Binding Address}" />
+								<TextBlock Text="{Binding AddressErrorMessage}"
+										   Foreground="Red"
+										   IsVisible="{Binding AddressErrorMessage, Converter={StaticResource StringNullOrWhitespaceToBoolConverter}}" />
+								<TextBox Watermark="Remote Directory Path" Text="{Binding RemotePath}" />
+								<TextBlock Text="{Binding RemotePathErrorMessage}"
+										   Foreground="Red"
+										   IsVisible="{Binding RemotePathErrorMessage, Converter={StaticResource StringNullOrWhitespaceToBoolConverter}}" />
+								<StackPanel Orientation="Horizontal" Spacing="10">
+									<TextBlock VerticalAlignment="Center" Text="Is Readonly" />
+									<ToggleSwitch IsChecked="{Binding IsReadonly}" />
+								</StackPanel>
+							</StackPanel>
+						</DataTemplate>
+					</ItemsControl.ItemTemplate>
+				</ItemsControl>
+			</Grid>
+
+			<Button Grid.Row="1" Theme="{DynamicResource SolidButton}"
+					Content="Start Session"
+					Command="{Binding StartCommand}" />
+		</Grid>
+	</Grid>
+</UserControl>
