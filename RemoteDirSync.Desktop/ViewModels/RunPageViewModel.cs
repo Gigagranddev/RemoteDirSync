@@ -1,0 +1,371 @@
+﻿using Avalonia.Threading;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+using RemoteDirSync.Bot;
+using RemoteDirSync.Bot.Controllers.DTOs;
+using RemoteDirSync.Bot.Jobs;
+using RemoteDirSync.Desktop.Models;
+using RemoteDirSync.Desktop.Util;
+using Semi.Avalonia.Tokens.Palette;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading.Tasks;
+using System.Windows.Input;
+
+namespace RemoteDirSync.Desktop.ViewModels
+{
+  public class RunPageViewModel : ObservableObject, IAsyncDisposable
+  {
+    public string SessionName { get; set; } = string.Empty;
+    public ObservableCollection<RemoteState> RemoteStates { get; } = new ObservableCollection<RemoteState>();
+    public ICommand BackCommand { get; set; }
+    public ICommand RefreshAllCommand { get; set; }
+    public event EventHandler? OnBackRequested;
+    private bool _syncing = false;
+
+    private List<IHost> _hosts = new List<IHost>();
+
+    public RunPageViewModel(Session session)
+    {
+      SessionName = session.Name;
+      int index = 0;
+      foreach (var conn in session.Connections)
+      {
+        var newState = new RemoteState()
+        {
+          Name = conn.Name,
+          Address = conn.Address.Trim().ToLower(),
+          Port = conn.Port,
+          RemoteFilePath = conn.RemotePath.Trim(),
+          RemoteStateIndex = index++,
+        };
+        newState.OnFileMoveRequested += (s, e) => HandleFileMoveRequested(s, e);
+
+        RemoteStates.Add(newState);
+      }
+
+      RemoteStates[0].SelectedNodes.CollectionChanged += (_, __) => SyncSelection(RemoteStates[0], RemoteStates[1]);
+      RemoteStates[1].SelectedNodes.CollectionChanged += (_, __) => SyncSelection(RemoteStates[1], RemoteStates[0]);
+
+      BackCommand = new RelayCommand(() => OnBackRequested?.Invoke(this, EventArgs.Empty));
+      RefreshAllCommand = new RelayCommand(async () => await RefreshAll());
+
+      _ = StartLocalHosts();
+    }
+
+    private void HandleFileMoveRequested(object? sender, EventArgs e)
+    {
+      if (sender is not RemoteState sourceState || sourceState.SelectedNodes.Count == 0)
+      {
+        return;
+      }
+
+    }
+
+    private void SyncSelection(RemoteState source, RemoteState dest)
+    {
+      if (_syncing) return;
+
+      // Map by stable key (don’t rely on object reference unless both trees share instances)
+      var keys = source.SelectedNodes.Select(n => n.PathRelativeToRoot).ToHashSet();
+
+      _syncing = true;
+      try
+      {
+        dest.SelectedNodes.Clear();
+        foreach (var id in keys)
+          if (dest.ById.TryGetValue(id, out var node))
+            dest.SelectedNodes.Add(node);
+      }
+      finally
+      {
+        _syncing = false;
+      }
+    }
+
+    private async Task StartLocalHosts()
+    {
+      foreach (var remoteState in RemoteStates)
+      {
+        if (remoteState.Address == "localhost" || remoteState.Address == "127.0.0.1")
+        {
+          try
+          {
+            var localHost = await WebApiHost.StartAsync(Array.Empty<string>(), remoteState.Address, remoteState.Port);
+            _hosts.Add(localHost);
+          }
+          catch (Exception ex)
+          {
+            // Log and ignore
+            Console.WriteLine($"Failed to start local host for {remoteState.Address}:{remoteState.Port} - {ex.Message}");
+          }
+        }
+      }
+    }
+
+    private async Task RefreshAll()
+    {
+      var tasks = RemoteStates.Select(rs => RefreshRemoteState(rs));
+      await Task.WhenAll(tasks);
+
+      // After all remotes are refreshed, compare files pairwise by SHA
+      if (RemoteStates.Count == 2)
+      {
+        var left = RemoteStates[0];
+        var right = RemoteStates[1];
+
+        var leftFiles = left.GetAllFileItems().ToDictionary(f => f.PathRelativeToRoot, StringComparer.OrdinalIgnoreCase);
+        var rightFiles = right.GetAllFileItems().ToDictionary(f => f.PathRelativeToRoot, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var kvp in leftFiles)
+        {
+          var path = kvp.Key;
+          var leftItem = kvp.Value;
+
+          if (rightFiles.TryGetValue(path, out var rightItem))
+          {
+            // Both sides have the file; compare SHA
+            if (!string.IsNullOrEmpty(leftItem.Sha256Hash) && !string.IsNullOrEmpty(rightItem.Sha256Hash))
+            {
+              if (string.Equals(leftItem.Sha256Hash, rightItem.Sha256Hash, StringComparison.OrdinalIgnoreCase))
+              {
+                leftItem.Status = CounterpartStatus.Identical;
+                rightItem.Status = CounterpartStatus.Identical;
+              }
+              else
+              {
+                leftItem.Status = CounterpartStatus.Different;
+                rightItem.Status = CounterpartStatus.Different;
+              }
+            }
+            else
+            {
+              leftItem.Status = CounterpartStatus.Unknown;
+              rightItem.Status = CounterpartStatus.Unknown;
+            }
+          }
+          else
+          {
+            // Exists only on left
+            leftItem.Status = CounterpartStatus.Missing;
+          }
+        }
+
+        // Files that exist only on right
+        foreach (var kvp in rightFiles)
+        {
+          var path = kvp.Key;
+          var rightItem = kvp.Value;
+          if (!leftFiles.ContainsKey(path))
+          {
+            rightItem.Status = CounterpartStatus.Missing;
+          }
+        }
+
+        PropagateFolderStatus(left, right);
+        PropagateFolderStatus(right, left);
+      }
+    }
+
+    private static void PropagateFolderStatus(RemoteState primary, RemoteState other)
+    {
+      var primaryDirs = primary.GetAllDirectoryItems()
+        .OrderByDescending(d => d.PathRelativeToRoot?.Length ?? 0) // deepest first
+        .ToList();
+
+      var otherDirsByPath = other.GetAllDirectoryItems()
+        .ToDictionary(d => d.PathRelativeToRoot, StringComparer.OrdinalIgnoreCase);
+
+      foreach (var dir in primaryDirs)
+      {
+        if (string.IsNullOrEmpty(dir.PathRelativeToRoot))
+          continue;
+
+        if (!otherDirsByPath.TryGetValue(dir.PathRelativeToRoot, out var counterpart))
+        {
+          // counterpart folder missing
+          dir.Status = CounterpartStatus.Missing;
+          continue;
+        }
+
+        if (dir.Children == null || dir.Children.Count == 0)
+        {
+          // No children -> treat as Unknown (or Identical if you prefer)
+          dir.Status = CounterpartStatus.Unknown;
+          continue;
+        }
+
+        // Look at children statuses (files + subfolders)
+        var childStatuses = dir.Children.Select(c => c.Status).ToArray();
+
+        if (childStatuses.All(s => s == CounterpartStatus.Identical))
+        {
+          dir.Status = CounterpartStatus.Identical;
+        }
+        else if (childStatuses.Any(s => s == CounterpartStatus.Different ||
+                                        s == CounterpartStatus.Missing))
+        {
+          dir.Status = CounterpartStatus.Different;
+        }
+        else
+        {
+          // e.g. all Unknown, or mix of Unknown/Identical but no clear difference
+          dir.Status = CounterpartStatus.Unknown;
+        }
+      }
+    }
+
+    private async Task RefreshRemoteState(RemoteState remoteState)
+    {
+      try
+      {
+        remoteState.IsScanning = true;
+        HttpClient client = CreateInsecureHttpClient();
+        client.BaseAddress = new Uri($"http://{remoteState.Address}:{remoteState.Port}/");
+        string encodedPath = Uri.EscapeDataString(remoteState.RemoteFilePath);
+
+        var response = await client.GetAsync($"DirScan/ScanDir?path={encodedPath}");
+        if (!response.IsSuccessStatusCode)
+        {
+          throw new Exception($"Failed to scan directory {remoteState.RemoteFilePath}, Status: {response.StatusCode}");
+        }
+
+        bool hasFinished = false;
+        JsonSerializerOptions options = new JsonSerializerOptions
+        {
+          PropertyNameCaseInsensitive = true,
+        };
+        while (!hasFinished)
+        {
+          var statusResponse = await client.GetAsync($"DirScan/GetScanDirStatus");
+          if (statusResponse.IsSuccessStatusCode)
+          {
+            var statusContent = await statusResponse.Content.ReadAsStringAsync();
+            var status = JsonSerializer.Deserialize<DirScanStatusDTO>(statusContent, options);
+            if (status != null)
+            {
+              hasFinished = status.Status == JobStatus.Succeeded || status.Status == JobStatus.Failed;
+              var result = status.Results.OrderBy(r => r.FullPath).ToArray();
+              await Dispatcher.UIThread.InvokeAsync(() =>
+              {
+                foreach (var fileItem in result)
+                {
+                  remoteState.UpdateOrCreateFileItem(fileItem, remoteState.RemoteFilePath);
+                }
+                remoteState.SortFileItems();
+              });
+              if (!hasFinished)
+              {
+                await Task.Delay(3000);
+              }
+            }
+          }
+          else
+          {
+            throw new Exception($"Failed to get scan status for directory {remoteState.RemoteFilePath}, Status: {statusResponse.StatusCode}");
+          }
+        }
+      }
+      catch (Exception ex)
+      {
+        // Log and ignore
+        Console.WriteLine($"Failed to refresh remote state for {remoteState.Address}:{remoteState.Port} - {ex.Message}");
+      }
+      finally
+      {
+        remoteState.IsScanning = false;
+      }
+    }
+
+    private static HttpClient CreateInsecureHttpClient()
+    {
+      var handler = new HttpClientHandler
+      {
+        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+      };
+
+      return new HttpClient(handler);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+      foreach (var host in _hosts)
+      {
+        await host.StopAsync();
+        host.Dispose();
+      }
+    }
+  }
+
+
+  public class DesignRunPageViewModel : RunPageViewModel
+  {
+    private static Session CreateDesignSession()
+    {
+      var session = new Session();
+      session.Name = "Design Session";
+      session.Connections.Add(new Connection()
+      {
+        Name = "Connection 1",
+        Address = "192.169.1.1",
+        RemotePath = "/home/user/Folder"
+      });
+      session.Connections.Add(new Connection()
+      {
+        Name = "Connection 2",
+        Address = "serverb.example.com",
+        RemotePath = "/home/user/Folder"
+      });
+      return session;
+    }
+
+    public DesignRunPageViewModel() : base(CreateDesignSession())
+    {
+      RemoteStates[0].FileSystemItems.Add(new FileSystemItem()
+      {
+        Name = "Folder",
+        ItemType = FileSystemItemType.Directory,
+        PathRelativeToRoot = "/home/user/Folder"
+      });
+      RemoteStates[0].FileSystemItems.Last().Children.Add(new FileSystemItem()
+      {
+        Name = "File1.txt",
+        ItemType = FileSystemItemType.File,
+        PathRelativeToRoot = "/home/user/Folder/File1.txt"
+      });
+      RemoteStates[0].FileSystemItems.Last().Children.Add(new FileSystemItem()
+      {
+        Name = "File2.txt",
+        ItemType = FileSystemItemType.File,
+        PathRelativeToRoot = "/home/user/Folder/File2.txt"
+      });
+
+      RemoteStates[1].FileSystemItems.Add(new FileSystemItem()
+      {
+        Name = "Folder",
+        ItemType = FileSystemItemType.Directory,
+        PathRelativeToRoot = "/home/user/Folder"
+      });
+      RemoteStates[1].FileSystemItems.Last().Children.Add(new FileSystemItem()
+      {
+        Name = "File1.txt",
+        ItemType = FileSystemItemType.File,
+        PathRelativeToRoot = "/home/user/Folder/File1.txt"
+      });
+      RemoteStates[1].FileSystemItems.Last().Children.Add(new FileSystemItem()
+      {
+        Name = "File2.txt",
+        ItemType = FileSystemItemType.File,
+        PathRelativeToRoot = "/home/user/Folder/File2.txt"
+      });
+    }
+  }
+}

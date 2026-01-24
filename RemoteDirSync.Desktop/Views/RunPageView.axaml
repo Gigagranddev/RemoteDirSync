@@ -1,0 +1,114 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+			 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+			 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+			 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+			 xmlns:models="clr-namespace:RemoteDirSync.Desktop.Models"
+			 xmlns:vm="using:RemoteDirSync.Desktop.ViewModels"
+			 xmlns:converters="clr-namespace:RemoteDirSync.Desktop.Converters"
+			 mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+			 x:DataType="vm:RunPageViewModel"
+			 x:Class="RemoteDirSync.Desktop.Views.RunPageView">
+	<Design.DataContext>
+		<vm:DesignRunPageViewModel/>
+	</Design.DataContext>
+
+	<UserControl.Resources>
+		<FontFamily x:Key="FontAwesome">avares://RemoteDirSync.Desktop/Assets/Fonts#Font Awesome 7 Free</FontFamily>
+		<FontFamily x:Key="FontAwesomeSolid">avares://RemoteDirSync.Desktop/Assets/Fonts#Font Awesome 7 Free Solid</FontFamily>
+		<converters:InvertBoolConverter x:Key="InvertBoolConverter" />
+		<converters:EnumGlyphConverter x:Key="EnumGlyphConverter" />
+		<converters:EqualityToValueConverter x:Key="EqualityToValueConverter" />
+		<DataTemplate x:Key="ConnectionTemplate"
+					  DataType="models:RemoteState">
+			<!-- Root as Grid so content is constrained by parent cell -->
+			<Grid RowDefinitions="Auto,Auto,*,Auto">
+				<!-- Header -->
+				<StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4"
+							Background="{StaticResource SemiGrey2}">
+					<TextBlock Text="{Binding Name}" Classes="H2" />
+					<TextBlock Text=":" />
+					<TextBlock Text="{Binding Address}" />
+					<TextBlock Text=":" />
+					<TextBlock Text="{Binding RemoteFilePath}" />
+				</StackPanel>
+
+				<!-- Progress -->
+				<ProgressBar Grid.Row="1"
+							 IsIndeterminate="True"
+							 Height="4"
+							 Margin="0,2,0,2"
+							 IsVisible="{Binding IsScanning}" />
+
+				<!-- Scrollable tree -->
+				<ScrollViewer Grid.Row="2"
+							  AllowAutoHide="False"
+							  VerticalScrollBarVisibility="Auto"
+							  HorizontalScrollBarVisibility="Auto">
+					<TreeView ItemsSource="{Binding FileSystemItems}" Tag="{Binding Name}" SelectionMode="Multiple" SelectedItems="{Binding SelectedNodes}">
+						<TreeView.ItemTemplate>
+							<TreeDataTemplate ItemsSource="{Binding Children}">
+								<Grid ColumnSpacing="5" ColumnDefinitions="Auto,*,Auto">
+									<TextBlock Grid.Column="0"
+											   FontFamily="{StaticResource FontAwesomeSolid}"
+											   Text="{Binding ItemType, Converter={StaticResource EnumGlyphConverter}, ConverterParameter='Directory=&#xf07b;:File=&#xf15b;:*=&#x003f;'}"
+											   VerticalAlignment="Center" />
+									<TextBlock Grid.Column="1" Text="{Binding Name}" />
+									<TextBlock Grid.Column="2"
+											   FontFamily="{StaticResource FontAwesomeSolid}"
+											   Text="{Binding Status, Converter={StaticResource EnumGlyphConverter}, ConverterParameter='Missing=&#xe1fe;:Different=&#xf53e;:Identical=&#x3d;:*=&#x3f;'}"
+											   VerticalAlignment="Center" />
+								</Grid>
+							</TreeDataTemplate>
+						</TreeView.ItemTemplate>
+					</TreeView>
+				</ScrollViewer>
+				<Panel Grid.Row="3" Background="{StaticResource SemiGrey4}">
+					<Button IsVisible="{Binding RemoteStateIndex, Converter={StaticResource EqualityToValueConverter}, ConverterParameter='0:True:False'}" Margin="5" HorizontalAlignment="Right" Theme="{DynamicResource SolidButton}" Command="{Binding MoveSelectedFilesCommand}" >
+						<StackPanel Orientation="Horizontal" Spacing="4">
+							<TextBlock Text="Move Right"  />
+							<TextBlock Text="→" />
+						</StackPanel>
+					</Button>
+					<Button IsVisible="{Binding RemoteStateIndex, Converter={StaticResource EqualityToValueConverter}, ConverterParameter='1:True:False'}" Margin="5" HorizontalAlignment="Left" Theme="{DynamicResource SolidButton}" Command="{Binding MoveSelectedFilesCommand}">
+						<StackPanel Orientation="Horizontal" Spacing="4">
+							<TextBlock Text="←" />
+							<TextBlock Text="Move Left"  />
+						</StackPanel>
+					</Button>
+				</Panel>
+			</Grid>
+		</DataTemplate>
+	</UserControl.Resources>
+
+	<Grid ColumnDefinitions="*,Auto,*" RowDefinitions="Auto,*,Auto">
+		<Panel Background="{DynamicResource SemiGrey1}" Grid.Column="0" Grid.Row="0" Grid.ColumnSpan="3">
+			<Grid ColumnDefinitions="Auto,*,Auto" Margin="5"
+				  >
+				<Button Theme="{DynamicResource SolidButton}" Command="{Binding BackCommand}" Grid.Column="0">
+					<StackPanel Orientation="Horizontal" Spacing="4">
+						<TextBlock Text="←" />
+						<TextBlock Text="Back"  />
+					</StackPanel>
+				</Button>
+				<TextBlock Text="{Binding SessionName}" VerticalAlignment="Center" Grid.Column="1" HorizontalAlignment="Center" />
+				<Button Theme="{DynamicResource SolidButton}" Command="{Binding RefreshAllCommand}" Grid.Column="2">
+					<StackPanel Orientation="Horizontal" Spacing="4">
+						<TextBlock Text="Refresh All"  />
+					</StackPanel>
+				</Button>
+			</Grid>
+		</Panel>
+		<!-- Left panel -->
+		<ContentControl Grid.Column="0" Grid.Row="1" Content="{Binding RemoteStates[0]}" ContentTemplate="{StaticResource ConnectionTemplate}"  />
+
+		<!-- Splitter -->
+		<GridSplitter Grid.Column="1" Grid.Row="1"
+					  Width="5"
+					  Background="Gray"
+					  ResizeDirection="Columns"
+					  ShowsPreview="True" />
+
+		<!-- Right panel -->
+		<ContentControl Grid.Column="2" Grid.Row="1" Content="{Binding RemoteStates[1]}" ContentTemplate="{StaticResource ConnectionTemplate}" />
+	</Grid>
+</UserControl>
