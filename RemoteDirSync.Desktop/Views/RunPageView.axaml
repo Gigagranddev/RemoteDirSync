@@ -55,7 +55,7 @@
 									<TextBlock Grid.Column="1" Text="{Binding Name}" />
 									<TextBlock Grid.Column="2"
 											   FontFamily="{StaticResource FontAwesomeSolid}"
-											   Text="{Binding Status, Converter={StaticResource EnumGlyphConverter}, ConverterParameter='Missing=&#xe1fe;:Different=&#xf53e;:Identical=&#x3d;:*=&#x3f;'}"
+											   Text="{Binding Status, Converter={StaticResource EnumGlyphConverter}, ConverterParameter='Missing=&#xe1fe;:Different=&#xf53e;:Identical=&#x3d;:Transferred=&#xf0ec;:*=&#x3f;'}"
 											   VerticalAlignment="Center" />
 								</Grid>
 							</TreeDataTemplate>
@@ -63,7 +63,7 @@
 					</TreeView>
 				</ScrollViewer>
 				<Panel Grid.Row="3" Background="{StaticResource SemiGrey4}">
-					<Button IsVisible="{Binding RemoteStateIndex, Converter={StaticResource EqualityToValueConverter}, ConverterParameter='0:True:False'}" Margin="5" HorizontalAlignment="Right" Theme="{DynamicResource SolidButton}" Command="{Binding MoveSelectedFilesCommand}" >
+					<Button IsVisible="{Binding RemoteStateIndex, Converter={StaticResource EqualityToValueConverter}, ConverterParameter='0:True:False'}" Margin="5" HorizontalAlignment="Right" Theme="{DynamicResource SolidButton}" Command="{Binding MoveSelectedFilesCommand}">
 						<StackPanel Orientation="Horizontal" Spacing="4">
 							<TextBlock Text="Move Right"  />
 							<TextBlock Text="→" />

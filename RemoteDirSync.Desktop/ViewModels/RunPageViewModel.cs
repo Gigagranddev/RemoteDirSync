@@ -44,7 +44,7 @@ namespace RemoteDirSync.Desktop.ViewModels
           Name = conn.Name,
           Address = conn.Address.Trim().ToLower(),
           Port = conn.Port,
-          RemoteFilePath = conn.RemotePath.Trim(),
+          RemoteFilePath = conn.RemotePath.Trim().Replace("\\", "/"), //Standardize to forward slashes
           RemoteStateIndex = index++,
         };
         newState.OnFileMoveRequested += (s, e) => HandleFileMoveRequested(s, e);
@@ -67,6 +67,39 @@ namespace RemoteDirSync.Desktop.ViewModels
       {
         return;
       }
+      var otherRemoteStates = RemoteStates.Where(rs => rs != sourceState).ToList();
+      HttpClient client = CreateInsecureHttpClient();
+      client.BaseAddress = new Uri($"http://{sourceState.Address}:{sourceState.Port}/");
+      string encodedPath = Uri.EscapeDataString(sourceState.RemoteFilePath);
+      foreach (var destState in otherRemoteStates)
+      {
+        var sendRequest = new SendFileRequestDTO()
+        {
+          FilesToSend = sourceState.SelectedNodes.Select(node => new SendFileDataDTO()
+          {
+            FilePath = sourceState.RemoteFilePath + "/" + node.PathRelativeToRoot,
+            DestinationPort = destState.Port,
+            DestinationAddress = destState.Address,
+            DestinationPath = destState.RemoteFilePath + "/" + node.PathRelativeToRoot
+          }).ToArray()
+        };
+        
+        var jsonContent = JsonSerializer.Serialize(sendRequest);
+        var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+        var response = client.PostAsync("DirScan/SendFiles", httpContent).Result;
+        if (response.IsSuccessStatusCode)
+        {
+          foreach(var node in destState.SelectedNodes)
+          {
+            node.Status = CounterpartStatus.Transferred;
+          }
+        }
+      }
+      foreach (var node in sourceState.SelectedNodes)
+      {
+        node.Status = CounterpartStatus.Transferred;
+      }
+
 
     }
 
@@ -74,16 +107,21 @@ namespace RemoteDirSync.Desktop.ViewModels
     {
       if (_syncing) return;
 
-      // Map by stable key (don’t rely on object reference unless both trees share instances)
-      var keys = source.SelectedNodes.Select(n => n.PathRelativeToRoot).ToHashSet();
 
       _syncing = true;
       try
       {
         dest.SelectedNodes.Clear();
-        foreach (var id in keys)
-          if (dest.ById.TryGetValue(id, out var node))
-            dest.SelectedNodes.Add(node);
+        foreach (var sourceNode in source.SelectedNodes)
+        {
+          if (dest.ById.TryGetValue(sourceNode.PathRelativeToRoot, out var destNode))
+          {
+            if (destNode.ItemType == sourceNode.ItemType)
+            {
+              dest.SelectedNodes.Add(destNode);
+            }
+          }
+        }
       }
       finally
       {
@@ -237,7 +275,10 @@ namespace RemoteDirSync.Desktop.ViewModels
         {
           throw new Exception($"Failed to scan directory {remoteState.RemoteFilePath}, Status: {response.StatusCode}");
         }
-
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+          remoteState.FileSystemItems.Clear();
+        });
         bool hasFinished = false;
         JsonSerializerOptions options = new JsonSerializerOptions
         {

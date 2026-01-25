@@ -24,7 +24,7 @@ namespace RemoteDirSync.Bot.Controllers
     public async Task<ActionResult> ScanDir([FromQuery][BindRequired] string path)
     {
       var existingJobs = _queue.GetJobsOfType(typeof(DirScanJobStartInfo));
-      if (existingJobs.Any())
+      if (existingJobs.Any(j => j.Status == JobStatus.Running || j.Status == JobStatus.Pending))
       {
         return Ok();
       }
@@ -40,7 +40,7 @@ namespace RemoteDirSync.Bot.Controllers
     [HttpGet]
     public ActionResult<DirScanStatusDTO> GetScanDirStatus()
     {
-      var existingJobs = _queue.GetJobsOfType(typeof(DirScanJobStartInfo));
+      var existingJobs = _queue.GetJobsOfType(typeof(DirScanJobStartInfo)).OrderByDescending(j => j.CreatedAt);
       if (!existingJobs.Any())
       {
         return Ok(new DirScanStatusDTO()
@@ -60,9 +60,33 @@ namespace RemoteDirSync.Bot.Controllers
 
     // You can keep SendFile here unchanged for now
     [HttpPost]
-    public async Task<ActionResult> SendFile([FromBody] SendFileRequestDTO request)
+    public async Task<ActionResult> SendFiles([FromBody] SendFileRequestDTO request)
     {
-      return Ok(new { ReceivedCount = 1 });
+      var sendFileJobInfo = request.FilesToSend.Select(f => new SendFileJobStartInfo()
+      {
+        DestinationAddress = f.DestinationAddress,
+        DestinationPort = f.DestinationPort,
+        DestinationPath = f.DestinationPath,
+        FilePath = f.FilePath
+      });
+      foreach(var job in sendFileJobInfo)
+      {
+        await _queue.EnqueueAsync(job);
+      }
+      return Ok();
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> ReceiveFile([FromForm]IFormFile file, [FromForm]string destinationPath)
+    {
+      if (file == null || file.Length == 0)
+        return BadRequest("Empty file.");
+
+      Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+      await using var fs = System.IO.File.Create(destinationPath);
+      await file.CopyToAsync(fs);
+
+      return Ok();
     }
   }
 }

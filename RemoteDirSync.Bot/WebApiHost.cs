@@ -29,6 +29,11 @@ namespace RemoteDirSync.Bot
                    services.AddSingleton<IBackgroundJobQueue, BackgroundJobQueue>();
                    services.AddSingleton<DirScannerService>();
                    services.AddHostedService<BackgroundJobWorker>();
+                   services.AddHttpClient("fileTransferClient")
+                    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+                    {
+                      ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+                    });
                  })
                  .Configure(app =>
                  {
