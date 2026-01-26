@@ -17,6 +17,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 
@@ -30,6 +31,7 @@ namespace RemoteDirSync.Desktop.ViewModels
     public ICommand RefreshAllCommand { get; set; }
     public event EventHandler? OnBackRequested;
     private bool _syncing = false;
+    private CancellationTokenSource _jobPollCancelTokenSource = new CancellationTokenSource();
 
     private List<IHost> _hosts = new List<IHost>();
 
@@ -59,6 +61,51 @@ namespace RemoteDirSync.Desktop.ViewModels
       RefreshAllCommand = new RelayCommand(async () => await RefreshAll());
 
       _ = StartLocalHosts();
+      StartPollingJobInfos();
+    }
+
+    private void StartPollingJobInfos()
+    {
+      CancellationToken ct = _jobPollCancelTokenSource.Token;
+      Task.Run(async () =>
+      {
+        while (!ct.IsCancellationRequested)
+        {
+          foreach (var remoteState in RemoteStates)
+          {
+            try
+            {
+              var http = remoteState.HttpClient;
+              var response = await http.GetAsync("DirScan/GetAllJobs");
+              if (response.IsSuccessStatusCode)
+              {
+                remoteState.CurrentJobs.Clear();
+                var content = await response.Content.ReadAsStringAsync();
+                JsonSerializerOptions options = new JsonSerializerOptions
+                {
+                  PropertyNameCaseInsensitive = true,
+                };
+                var jobs = JsonSerializer.Deserialize<List<JobStatusDTO>>(content, options);
+                if (jobs != null)
+                {
+                  foreach (var jobSummary in jobs)
+                  {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                      remoteState.CurrentJobs.Add(jobSummary);
+                    });
+                  }
+                }
+              }
+            }
+            catch (Exception ex)
+            {
+              Console.WriteLine($"Error polling jobs for {remoteState.Address}:{remoteState.Port} - {ex.Message}");
+            }
+          }
+          await Task.Delay(5000, ct);
+        }
+      }, ct);
     }
 
     private void HandleFileMoveRequested(object? sender, EventArgs e)
@@ -68,14 +115,20 @@ namespace RemoteDirSync.Desktop.ViewModels
         return;
       }
       var otherRemoteStates = RemoteStates.Where(rs => rs != sourceState).ToList();
-      HttpClient client = CreateInsecureHttpClient();
-      client.BaseAddress = new Uri($"http://{sourceState.Address}:{sourceState.Port}/");
+      HttpClient client = sourceState.HttpClient;
       string encodedPath = Uri.EscapeDataString(sourceState.RemoteFilePath);
+
+      var nodesToSend = sourceState.SelectedNodes.Where(n=> n.ItemType == FileSystemItemType.File).ToList();
+      if(nodesToSend.Count != 1)
+      {
+        nodesToSend = nodesToSend.Where(n => n.Status != CounterpartStatus.Identical && n.Status != CounterpartStatus.Transferred).ToList();
+      }
+
       foreach (var destState in otherRemoteStates)
       {
         var sendRequest = new SendFileRequestDTO()
         {
-          FilesToSend = sourceState.SelectedNodes.Select(node => new SendFileDataDTO()
+          FilesToSend = nodesToSend.Select(node => new SendFileDataDTO()
           {
             FilePath = sourceState.RemoteFilePath + "/" + node.PathRelativeToRoot,
             DestinationPort = destState.Port,
@@ -137,7 +190,7 @@ namespace RemoteDirSync.Desktop.ViewModels
         {
           try
           {
-            var localHost = await WebApiHost.StartAsync(Array.Empty<string>(), remoteState.Address, remoteState.Port);
+            var localHost = await WebApiHost.StartAsync(Array.Empty<string>(), remoteState.Port);
             _hosts.Add(localHost);
           }
           catch (Exception ex)
@@ -266,8 +319,8 @@ namespace RemoteDirSync.Desktop.ViewModels
       try
       {
         remoteState.IsScanning = true;
-        HttpClient client = CreateInsecureHttpClient();
-        client.BaseAddress = new Uri($"http://{remoteState.Address}:{remoteState.Port}/");
+        HttpClient client = remoteState.HttpClient;
+        
         string encodedPath = Uri.EscapeDataString(remoteState.RemoteFilePath);
 
         var response = await client.GetAsync($"DirScan/ScanDir?path={encodedPath}");
@@ -324,16 +377,6 @@ namespace RemoteDirSync.Desktop.ViewModels
       {
         remoteState.IsScanning = false;
       }
-    }
-
-    private static HttpClient CreateInsecureHttpClient()
-    {
-      var handler = new HttpClientHandler
-      {
-        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
-      };
-
-      return new HttpClient(handler);
     }
 
     public async ValueTask DisposeAsync()
@@ -407,6 +450,13 @@ namespace RemoteDirSync.Desktop.ViewModels
         ItemType = FileSystemItemType.File,
         PathRelativeToRoot = "/home/user/Folder/File2.txt"
       });
+
+      RemoteStates[0].CurrentJobs.Add(new JobStatusDTO() { JobId = Guid.NewGuid(), JobType = "Scan", Status = "Scanning..." });
+      RemoteStates[0].CurrentJobs.Add(new JobStatusDTO() { JobId = Guid.NewGuid(), JobType = "SendFile", Status = "Scanning..." });
+      RemoteStates[0].CurrentJobs.Add(new JobStatusDTO() { JobId = Guid.NewGuid(), JobType = "SendFile", Status = "Scanning..." });
+      RemoteStates[0].CurrentJobs.Add(new JobStatusDTO() { JobId = Guid.NewGuid(), JobType = "SendFile", Status = "Scanning..." });
+      RemoteStates[0].CurrentJobs.Add(new JobStatusDTO() { JobId = Guid.NewGuid(), JobType = "SendFile", Status = "Scanning..." });
+      RemoteStates[0].CurrentJobs.Add(new JobStatusDTO() { JobId = Guid.NewGuid(), JobType = "SendFile", Status = "Scanning..." });
     }
   }
 }

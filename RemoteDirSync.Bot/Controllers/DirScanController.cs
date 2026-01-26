@@ -5,6 +5,8 @@ using RemoteDirSync.Bot.Jobs;
 using RemoteDirSync.Bot.Jobs.Implementations;
 using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace RemoteDirSync.Bot.Controllers
 {
@@ -52,7 +54,7 @@ namespace RemoteDirSync.Bot.Controllers
       var status = new DirScanStatusDTO()
       {
         Status = jobInfo.Status,
-        Results = (jobInfo.CurrentResult as ConcurrentBag<DirScanResultDTO>)?.ToList() ?? new List<DirScanResultDTO>(),
+        Results = (jobInfo.CurrentResult as DirScanResult)?.ScanResults.ToList() ?? new List<DirScanResultDTO>(),
       };
 
       return Ok(status);
@@ -69,7 +71,7 @@ namespace RemoteDirSync.Bot.Controllers
         DestinationPath = f.DestinationPath,
         FilePath = f.FilePath
       });
-      foreach(var job in sendFileJobInfo)
+      foreach (var job in sendFileJobInfo)
       {
         await _queue.EnqueueAsync(job);
       }
@@ -77,16 +79,59 @@ namespace RemoteDirSync.Bot.Controllers
     }
 
     [HttpPost]
-    public async Task<IActionResult> ReceiveFile([FromForm]IFormFile file, [FromForm]string destinationPath)
+    public async Task<IActionResult> ReceiveFile([FromForm] IFormFile file, [FromForm] string destinationPath)
     {
       if (file == null || file.Length == 0)
         return BadRequest("Empty file.");
+
+      if(Path.DirectorySeparatorChar == '\\')
+      {
+        destinationPath = destinationPath.Replace('/', '\\');
+      }
+      else
+      {
+        destinationPath = destinationPath.Replace('\\', '/');
+      }
 
       Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
       await using var fs = System.IO.File.Create(destinationPath);
       await file.CopyToAsync(fs);
 
       return Ok();
+    }
+
+    [HttpGet]
+    [HttpGet]
+    public async Task<ActionResult<JobStatusDTO[]>> GetAllJobs()
+    {
+      var jobs = _queue.GetAllJobs();
+
+      // Latest scan job (if any)
+      var latestScanDirJob = jobs
+        .Where(j => j.StartInfo is DirScanJobStartInfo)
+        .OrderByDescending(j => j.CreatedAt)
+        .FirstOrDefault();
+
+      // All non-scan jobs
+      var otherJobs = jobs.Where(j => j.StartInfo is not DirScanJobStartInfo);
+
+      // Sequence: latest scan job (0 or 1) followed by all other jobs
+      IEnumerable<JobInfo> jobsToReport =
+        latestScanDirJob is not null
+          ? Enumerable.Repeat(latestScanDirJob, 1).Concat(otherJobs)
+          : otherJobs;
+
+      var jobSummaries = jobsToReport
+        .Select(j => new JobStatusDTO
+        {
+          JobId = j.Id,
+          Status = j.Status.ToString(),
+          JobType = j.JobType,
+          CurrentResult = j.CurrentResult?.GetStatusString() ?? string.Empty
+        })
+        .ToArray();
+
+      return Ok(jobSummaries);
     }
   }
 }

@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -20,6 +21,7 @@ namespace RemoteDirSync.Desktop.Models
     private string _address = string.Empty;
     private int _port = 5000;
     private int _remoteStateIndex = -1;
+    private HttpClient? _httpClient;
     public ICommand MoveSelectedFilesCommand { get; }
     public event EventHandler? OnFileMoveRequested;
 
@@ -71,7 +73,24 @@ namespace RemoteDirSync.Desktop.Models
     }
     public ObservableCollection<FileSystemItem> FileSystemItems { get; set; } = new();
     public ObservableCollection<FileSystemItem> SelectedNodes { get; } = new();
+    public ObservableCollection<JobStatusDTO> CurrentJobs { get; } = new();
     public Dictionary<string, FileSystemItem> ById { get; } = new();
+
+    public HttpClient HttpClient
+    {
+      get {
+        if (_httpClient != null) return _httpClient;
+        var handler = new HttpClientHandler
+        {
+          ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+        };
+        _httpClient = new HttpClient(handler)
+        {
+          BaseAddress = new Uri($"http://{Address}:{Port}/")
+        };
+        return _httpClient;
+      }
+    }
 
     public required string RemoteFilePath
     {

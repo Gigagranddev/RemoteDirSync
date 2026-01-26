@@ -1,4 +1,4 @@
 using RemoteDirSync.Bot;
 
-var host = await WebApiHost.StartAsync(args, "localhost", port: 5000);
+var host = await WebApiHost.StartAsync(args, port: 5000);
 await host.WaitForShutdownAsync();

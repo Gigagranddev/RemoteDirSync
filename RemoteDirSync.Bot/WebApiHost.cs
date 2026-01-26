@@ -11,7 +11,6 @@ namespace RemoteDirSync.Bot
   {
     public static async Task<IHost> StartAsync(
         string[] args,
-        string lanHostOrIp,
         int port = 5000,
         CancellationToken ct = default)
     {
@@ -19,7 +18,7 @@ namespace RemoteDirSync.Bot
             .ConfigureWebHostDefaults(web =>
             {
               web.UseKestrel()
-                 .UseUrls($"http://127.0.0.1:{port}")
+                 .UseUrls($"http://0.0.0.0:{port}")
                  .ConfigureServices(services =>
                  {
                    services.AddControllers();
