@@ -5,7 +5,7 @@ RemoteDirSync is a two-part .NET 9 solution for inspecting and synchronizing dir
 - `RemoteDirSync.Bot` – ASP.NET Core Web API that runs on the target machine and exposes directory scan and file transfer endpoints.
 - `RemoteDirSync.Desktop` – Avalonia-based cross-platform desktop UI for configuring connections, scanning remote directories, and initiating file transfers.
 
-> **Status:** This project is a work in progress. **Use at your own risk.**  
+> **Status:** This project is a work in progress. **Use at your own risk.**  **I am not responsible for lost or overwritten files **
 > APIs, data formats, and UI behavior may change without notice.
 
 ---
